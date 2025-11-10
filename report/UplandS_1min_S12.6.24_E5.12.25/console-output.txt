@@ -1,0 +1,7 @@
+Starting data formatting --------------------------------------------------
+        Processing dataframe for UplandS_1min_S12.6.24_E5.12.25.
+                Number of duplicate timestamps: 0
+                Number of out-of-order timestamps: 0
+                Data gaps (in minutes): 95096
+                Network uptime: 0.5805353141485964
+Process completed ---------------------------------------------------------
