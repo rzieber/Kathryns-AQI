@@ -11,9 +11,9 @@ def main():
     3. Calculate AQI stats      stats.py *uses EPA's analysis library sensortoolkit
     -----------------------------------------------------------------------------------------
     """
-    cleaner.main("data\\raw", "data", 50)
-    # plotter.main("data\\cleaned", "plots\\cleaned\\test")
-    # stats.main("data\\cleaned", "stats\\test")
+    # cleaner.main("data\\raw", "data", 50)
+    plotter.main("data\\cleaned", "plots\\scatters")
+    # stats.main("data", "stats\\test")
 
 if __name__ == '__main__':
     main()

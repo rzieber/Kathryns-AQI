@@ -5,6 +5,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import argparse
 
+"""
+Intended to get pointed at any of the 3 data subfolders, raw/cleaned/outliers.
+"""
+
 def main(data:str, output:str):
     try:
         data = Path(data)
@@ -34,8 +38,16 @@ def main(data:str, output:str):
 
         i = 0
         for csv in data.glob("*.csv"):
-            print("Reading", str(csv.name))
-            df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
+            name = str(csv.stem)
+            print("Reading", name)
+
+            df = None
+            if name.startswith("daily"): continue
+            # elif name.startswith("UplandS"):  # comment out if pointing to data/cleaned
+            #     df = pd.read_csv(csv, low_memory=False, parse_dates=['UTC Date Time'])
+            #     df.rename(columns={'UTC Date Time':'time'}, inplace=True)
+            else:
+                df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
 
             df['week'] = df['time'].dt.to_period('W')
             df['day']  = df['time'].dt.to_period('D')
@@ -53,45 +65,45 @@ def main(data:str, output:str):
     Weekly time series plots
     ========================================================================
     """
-    weeks = sorted(set().union(*(df['week'].unique() for df in dataframes)))
+    # weeks = sorted(set().union(*(df['week'].unique() for df in dataframes)))
 
-    for week in weeks:
-        week = str(week)
+    # for week in weeks:
+    #     week = str(week)
 
-        for var_3dpaws, var_ajax in variable_mapper.items():
-            plt.figure(figsize=(12, 6))
+    #     for var_3dpaws, var_ajax in variable_mapper.items():
+    #         plt.figure(figsize=(12, 6))
 
-            for i, df in enumerate(dataframes):
-                weekly_df = df[df['week'] == week]
+    #         for i, df in enumerate(dataframes):
+    #             weekly_df = df[df['week'] == week]
 
-                if weekly_df.empty: continue
+    #             if weekly_df.empty: continue
 
-                if "TVOC-Signal" in list(df.columns): # AJAX site
-                    plt.plot(
-                            weekly_df['time'],
-                            weekly_df[var_ajax],
-                            label=f"AJAX Reference ({var_ajax})"
-                        )
-                else: # 3D-PAWS
-                    plt.plot(
-                            weekly_df['time'],
-                            weekly_df[var_3dpaws],
-                            label=f"3D-PAWS {names[i]} ({var_3dpaws})"
-                        )
+    #             if "TVOC-Signal" in list(df.columns): # AJAX site
+    #                 plt.plot(
+    #                         weekly_df['time'],
+    #                         weekly_df[var_ajax],
+    #                         label=f"AJAX Reference ({var_ajax})"
+    #                     )
+    #             else: # 3D-PAWS
+    #                 plt.plot(
+    #                         weekly_df['time'],
+    #                         weekly_df[var_3dpaws],
+    #                         label=f"3D-PAWS {names[i]} ({var_3dpaws})"
+    #                     )
 
-            plt.xlabel("Time")
-            plt.ylabel(f"{var_ajax} (µg/m³)")
-            plt.ylim(0, 50)
-            plt.title(f"{week} {var_ajax} 3D-PAWS versus AJAX")
-            plt.legend()
-            plt.grid(True)
-            plt.tight_layout()
+    #         plt.xlabel("Time")
+    #         plt.ylabel(f"{var_ajax} (µg/m³)")
+    #         plt.ylim(0, 50)
+    #         plt.title(f"{week} {var_ajax} 3D-PAWS versus AJAX")
+    #         plt.legend()
+    #         plt.grid(True)
+    #         plt.tight_layout()
 
-            safe_var_name = var_ajax.replace(" ", "-").replace(".", "_")
-            plt.savefig(output / f"{week[:10]}-{week[11:]}_{safe_var_name}_time-series.png")
+    #         safe_var_name = var_ajax.replace(" ", "-").replace(".", "_")
+    #         plt.savefig(output / f"{week[:10]}-{week[11:]}_{safe_var_name}_time-series.png")
 
-            plt.clf()
-            plt.close()
+    #         plt.clf()
+    #         plt.close()
 
 
     """
@@ -101,14 +113,17 @@ def main(data:str, output:str):
     """
     def _prepare_df(df, col):
         """Parse time, coerce numeric, add hour/day keys, return df with needed cols only."""
-        out = df.copy()
-        out['time'] = pd.to_datetime(out['time'], errors='coerce', utc=True).dt.tz_localize(None)
-        if col not in out.columns:
-            return None
-        out[col] = pd.to_numeric(out[col], errors='coerce')
-        out['hour_key'] = out['time'].dt.floor('H')
-        out['day_key']  = out['time'].dt.floor('D')
-        return out[['hour_key','day_key', col]]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+
+            out = df.copy()
+            out['time'] = pd.to_datetime(out['time'], errors='coerce', utc=True).dt.tz_localize(None)
+            if col not in out.columns:
+                return None
+            out[col] = pd.to_numeric(out[col], errors='coerce')
+            out['hour_key'] = out['time'].dt.floor('H')
+            out['day_key']  = out['time'].dt.floor('D')
+            return out[['hour_key','day_key', col]]
 
 
     def _agg_on_key(df, col, key, newname):
@@ -118,13 +133,14 @@ def main(data:str, output:str):
                     .reset_index())
 
 
-    def _stats_and_scatter(x, y, xlabel, ylabel, title, savepath, lim=50):
+    def _stats_and_scatter(x, y, is_outlier, xlabel, ylabel, title, savepath, lim=50):
         r = np.corrcoef(x, y)[0, 1] if len(x) > 1 else np.nan
         rmse = np.sqrt(np.mean((x - y) ** 2)) if len(x) > 0 else np.nan
 
         plt.figure(figsize=(12, 12))
-        plt.scatter(x, y, alpha=0.6)
-        # plt.plot([0, lim],[0, lim], linewidth=1)  # 1:1 line
+        # plt.scatter(x, y, alpha=0.6)
+        plt.scatter(x[~is_outlier], y[~is_outlier], color="blue", alpha=0.6, label="Cleaned (<50 µg/m³)")
+        plt.scatter(x[is_outlier], y[is_outlier], color="red", alpha=0.8, label="Outlier (>50 µg/m³)")
 
         ax = plt.gca()
         ax.set_aspect('equal', adjustable='box')
@@ -177,10 +193,13 @@ def main(data:str, output:str):
             # --- Hourly ---
             paws_hour = _agg_on_key(paws_prepped, var_3dpaws, 'hour_key', 'paws_val')
             merged_h = pd.merge(paws_hour, ajax_hour, on='hour_key', how='inner').dropna()
+            merged_h['is_outlier'] = merged_h['paws_val'] > 50
+            merged_h['is_outlier_ajax'] = merged_h['ajax_val'] > 50
             if not merged_h.empty:
                 _stats_and_scatter(
                     x=merged_h['paws_val'].values,
                     y=merged_h['ajax_val'].values,
+                    is_outlier=merged_h['is_outlier'].values,
                     xlabel=f"{paws_label} {var_3dpaws} Hourly Avg (µg/m³)",
                     ylabel=f"{ajax_name} {var_ajax} Hourly Avg (µg/m³)",
                     title=f"Hourly {var_ajax}: {paws_label} vs {ajax_name}",
@@ -193,10 +212,13 @@ def main(data:str, output:str):
             # --- Daily ---
             paws_day = _agg_on_key(paws_prepped, var_3dpaws, 'day_key', 'paws_val')
             merged_d = pd.merge(paws_day, ajax_day, on='day_key', how='inner').dropna()
+            merged_d['is_outlier'] = merged_d['paws_val'] > 50
+            merged_d['is_outlier_ajax'] = merged_d['ajax_val'] > 50
             if not merged_d.empty:
                 _stats_and_scatter(
                     x=merged_d['paws_val'].values,
                     y=merged_d['ajax_val'].values,
+                    is_outlier=merged_d['is_outlier'].values,
                     xlabel=f"{paws_label} {var_3dpaws} Daily Avg (µg/m³)",
                     ylabel=f"{ajax_name} {var_ajax} Daily Avg (µg/m³)",
                     title=f"Daily {var_ajax}: {paws_label} vs {ajax_name}",

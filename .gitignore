@@ -1,5 +1,5 @@
 data/cleaned/*
 data/outliers/*
-plots/cleaned/*
+plots/
 report/test
 __pycache__

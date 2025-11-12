@@ -47,9 +47,9 @@ def main(data:str, output:str):
 
             if name.endswith("_outliers"):
                 outliers[name] = len(df)
-                continue
-
-            dataframes.append(df)
+            elif name.endswith("_cleaned"):
+                dataframes.append(df)
+            else: continue
 
         pd.DataFrame(
             list(outliers.items()), columns=['Station Name', 'Number of Outliers']
