@@ -64,10 +64,12 @@ def main(data:str, output:str, aqi_threshold:float):
 
             df.loc[df[col] > aqi_threshold, col] = np.nan
 
-        df.to_csv(output / f"{name}_cleaned.csv", index=False)  
+        (output / "cleaned").mkdir(parents=True, exist_ok=True)
+        df.to_csv(output / "cleaned" / f"{name}_cleaned.csv", index=False)  
 
         if not outliers.empty: 
-            outliers.to_csv(output / f"{name}_outliers.csv", index=False) 
+            (output / "outliers").mkdir(parents=True, exist_ok=True)
+            outliers.to_csv(output / "outliers" / f"{name}_outliers.csv", index=False) 
 
 
 def parse_args():
