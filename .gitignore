@@ -1,3 +1,4 @@
-data/cleaned/test/
-plots/cleaned/test/
+data/cleaned/*
+plots/cleaned/*
+report/test
 __pycache__

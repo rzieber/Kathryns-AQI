@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import argparse
+import warnings
 
 def main(data:str, output:str, aqi_threshold:float):
     try:
@@ -21,26 +22,28 @@ def main(data:str, output:str, aqi_threshold:float):
     outliers = pd.DataFrame()
 
     for csv in data.rglob("*.csv"):
-        """
-        ========================================================================
-        Dataframe creation.
-        ========================================================================
-        """
-        name = str(csv.stem)
-        df = None
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=UserWarning)
+            """
+            ========================================================================
+            Dataframe creation.
+            ========================================================================
+            """
+            name = str(csv.stem)
+            df = None
 
-        print(name)
+            print("Reading", name)
 
-        is_ajax = False
-        if name.startswith("UplandS"):
-            df = pd.read_csv(csv, low_memory=False, parse_dates=['UTC Date Time'])
-            df.rename(columns={'UTC Date Time':'time'}, inplace=True)
-            is_ajax = True
+            is_ajax = False
+            if name.startswith("UplandS"):
+                df = pd.read_csv(csv, low_memory=False, parse_dates=['UTC Date Time'])
+                df.rename(columns={'UTC Date Time':'time'}, inplace=True)
+                is_ajax = True
 
-        elif name.startswith("daily_"): continue
+            elif name.startswith("daily_"): continue
 
-        else: 
-            df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
+            else: 
+                df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
 
         """
         ========================================================================
@@ -58,12 +61,11 @@ def main(data:str, output:str, aqi_threshold:float):
             mask = df[col] > aqi_threshold     
             if mask.any():
                 outliers = pd.concat([outliers, df.loc[mask, ['time', col]]], axis=0)
-                print(outliers)
 
             df.loc[df[col] > aqi_threshold, col] = np.nan
 
-        df.to_csv(output / f"{name}.csv", index=False)  
-        
+        df.to_csv(output / f"{name}_cleaned.csv", index=False)  
+
         if not outliers.empty: 
             outliers.to_csv(output / f"{name}_outliers.csv", index=False) 
 

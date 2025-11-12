@@ -27,17 +27,21 @@ def main(data:str, output:str):
     ========================================================================
     """
     dataframes = []
-    
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
+        warnings.simplefilter("ignore", category=FutureWarning)
 
         i = 0
         for csv in data.glob("*.csv"):
             print("Reading", str(csv.name))
-
             df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
+
             df['week'] = df['time'].dt.to_period('W')
+            df['day']  = df['time'].dt.to_period('D')
+            df['hour'] = df['time'].dt.to_period('H')
             df.set_index('time')
+
             dataframes.append(df)
 
             i += 1

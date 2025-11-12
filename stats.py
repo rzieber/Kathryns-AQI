@@ -2,8 +2,8 @@ import warnings
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import sensortoolkit as stk
-from sensortoolkit import *
+# import sensortoolkit as stk
+# from sensortoolkit import *
 import argparse
 
 def main(data:str, output:str):
@@ -28,16 +28,32 @@ def main(data:str, output:str):
     ========================================================================
     """
     dataframes = []
+    outliers = {}
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
+        warnings.simplefilter("ignore", category=FutureWarning)
 
         for csv in data.rglob("*.csv"):
-            print(str(csv.name))
+            name = str(csv.stem)
             df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
+            
+            print("Reading", name)
+
             df['week'] = df['time'].dt.to_period('W')
+            df['day']  = df['time'].dt.to_period('D')
+            df['hour'] = df['time'].dt.to_period('H')
             df.set_index('time')
+
+            if name.endswith("_outliers"):
+                outliers[name] = len(df)
+                continue
+
             dataframes.append(df)
+
+        pd.DataFrame(
+            list(outliers.items()), columns=['Station Name', 'Number of Outliers']
+        ).to_csv(output / f"total_outliers.csv", index=False)
 
     print()
 
