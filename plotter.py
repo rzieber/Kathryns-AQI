@@ -145,7 +145,6 @@ def main(data:str, output:str):
     def _is_ajax(df):
         if 'TVOC-Signal' in df.columns: return True
         return False
-        # return ('TVOC-Signal' in df.columns) # or ('PM 2.5' in df.columns)
 
 
     ajax_idx = next((i for i, df in enumerate(dataframes) if _is_ajax(df)), None)
