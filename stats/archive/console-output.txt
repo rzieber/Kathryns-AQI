@@ -1,0 +1,19 @@
+Starting 3D-PAWS data formatting ------------------------------------------
+        Processing dataframe for 3D-PAWS_ID18_2024-12-06_2025-05-12.
+                Number of duplicate timestamps: 0
+                Number of out-of-order timestamps: 0
+                Data gaps (in minutes): 62999
+                Network uptime: 0.7222560222904102
+Starting 3D-PAWS data formatting ------------------------------------------
+        Processing dataframe for 3D PAWS_ID127_2024-12-06_2025-05-12.
+                Number of duplicate timestamps: 0
+                Number of out-of-order timestamps: 0
+                Data gaps (in minutes): 66423
+                Network uptime: 0.7062073175046885
+Starting 3D-PAWS data formatting ------------------------------------------
+        Processing dataframe for 3D-PAWS_ID16_2024-12-06_2025-05-12.
+                Number of duplicate timestamps: 1
+                Number of out-of-order timestamps: 0
+                Data gaps (in minutes): 3012
+                Network uptime: 0.9867141874128835
+Process completed ---------------------------------------------------------

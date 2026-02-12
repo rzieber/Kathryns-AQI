@@ -1,5 +1,6 @@
 data/cleaned/*
 data/outliers/*
-plots/
+plots/*
 report/test
 __pycache__
+.DS_Store/
