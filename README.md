@@ -1,10 +1,138 @@
-# Kathryns-AQI
-2025 air quality sensor comparison
+# Kathryn's AQI Sensor Comparison — 2025
 
-## Use
-There are 3 main operations:
-    - clean
-    - plot
-    - generate statistics
+Air quality sensor performance assessment comparing low-cost 3D-PAWS instruments against
+regulatory-grade reference stations.
 
-Control script functionality from main.py
+---
+
+## Background
+
+This project evaluates whether 3D-PAWS (3-Dimensional Printed Automatic Weather Station)
+instruments can reliably track particulate matter (PM) concentrations compared to established
+reference-grade sensors. We focus on **PM 1.0** and **PM 2.5** only — PM 10 readings from
+3D-PAWS were determined to be unreliable and are excluded from analysis.
+
+Two study sites were investigated:
+
+### Study 1 — Erie / AJAX Site (Dec 2024 – May 2025)
+Compares four instruments co-located (or nearby) at the AJAX reference station in Erie, CO:
+
+| Instrument | Label in code | Notes |
+|---|---|---|
+| AJAX reference station | `AJAX Reference` | Regulatory-grade; the ground truth |
+| 3D-PAWS Instrument 16 | `3D-PAWS_AQ_Testbed` | Co-located with AJAX; primary 3D-PAWS test unit |
+| 3D-PAWS Instrument 18 | `Payne Observation Site` | Supervisor's personal weather station |
+| 3D-PAWS Instrument 127 | `AQ Comparison AJAX` | Nearby; included for additional comparison |
+
+### Study 2 — Boulder / Erie Community Center Site (Oct – Dec 2025)
+Compares two 3D-PAWS instruments co-located with Colorado State Health (CU Boulder) sensor,
+plus the Erie Community Center (ECC) reference station nearby:
+
+| Instrument | Label in code | Notes |
+|---|---|---|
+| CU Boulder (Marine Street) | `CU Boulder Reference` | Primary reference for Study 2 |
+| Erie Community Center | `Erie Community Center Reference` | Additional reference |
+| 3D-PAWS Instrument 153 | `AQ_Comparison_2` | 1-minute sampling interval |
+| 3D-PAWS Instrument 154 | `AQ_Comparison_1_5min` | 5-minute sampling interval; resolution comparison |
+
+A wildfire event (Realization Fire) occurred on **Nov 19 2025, 02:00–06:00 UTC** and is of
+special interest — there is a time-window filter in `plotter.py` you can uncomment to zoom in
+on this event.
+
+---
+
+## Repository Structure
+
+```
+.
+├── main.py          # Entry point — controls which steps to run
+├── cleaner.py       # Step 1: standardizes raw CSV files from all sources
+├── plotter.py       # Step 2: creates scatter plots with statistics
+├── stats.py         # Step 3: calculates summary statistics (outlier counts)
+├── data/
+│   ├── raw/         # Original CSV files from sensors and reference stations
+│   │   ├── 3D-PAWS_Instrument-*.csv      — 3D-PAWS sensor data
+│   │   ├── UplandS_1min_*.csv            — AJAX reference station
+│   │   ├── Marine Street_*.csv           — CU Boulder reference station
+│   │   ├── ECC_pm_*.csv                  — Erie Community Center (quarterly files)
+│   │   └── daily_*.csv                   — EPA daily aggregates (not used)
+│   └── reformatted/
+│       └── cleaned/ # Output of cleaner.py; input to plotter.py and stats.py
+└── stats/
+    └── test/        # Output of stats.py
+```
+
+---
+
+## How to Run
+
+### Prerequisites
+- Python 3.9+
+- `pandas`, `numpy`, `matplotlib`
+- `data_gap_filler` module from the `3D-PAWS_Data_Processing_Tools` repo
+  (update `gap_filler_path` in `cleaner.py` to point at your local clone)
+
+### Running the pipeline
+
+Open `main.py` and set flags in the `main()` call at the bottom:
+
+```python
+main(clean=True, plot=True, statistics=True)
+```
+
+- **`clean=True`** — reads `data/raw/`, writes standardized CSVs to `data/reformatted/cleaned/`
+- **`plot=True`** — reads `data/reformatted/`, generates scatter plots and prints statistics
+- **`statistics=True`** — reads `data/`, writes outlier count CSV to `stats/test/`
+
+You can also run each module directly from the command line:
+
+```bash
+python cleaner.py data/raw data/reformatted 50.0
+python plotter.py data/reformatted /path/to/output
+python stats.py data stats/test
+```
+
+### Configuring which study to run
+
+In `plotter.py`, find the `all_labels` list and fill it with the instruments you want to
+compare. The script generates all pairwise scatter plots from that list. See the comments
+in that section for which labels belong to which study.
+
+---
+
+## Key Analysis Decisions
+
+- **Outlier threshold: 50 µg/m³** — PM 2.5 readings above this are flagged as outliers and
+  shown in red on scatter plots but are still included in the data (not removed). This threshold
+  was chosen to separate typical urban background concentrations from smoke/event episodes.
+
+- **Axis limit: 40 µg/m³** — scatter plots are capped at 40 on both axes to improve visibility
+  of the bulk of data points; outliers outside this range are still plotted.
+
+- **Hourly averages** — all scatter plots compare 1-hour averages (not minute-by-minute) to
+  reduce noise. There is commented-out code for point-for-point (minute-level) comparison.
+
+- **Bias split at 10 µg/m³** — bias is reported separately for high (>10) and low (≤10)
+  concentration regimes because sensor behavior often differs between clean-air and polluted
+  conditions.
+
+- **PM 10 excluded** — PM 10 from 3D-PAWS is dropped during cleaning; it was found to be
+  unreliable. PM 1.0 is retained in some files but the primary comparison metric is PM 2.5.
+
+---
+
+## Commented-Out Code Guide
+
+The scripts contain several commented-out blocks that are preserved for reference or for
+re-enabling specific analyses. Here is a quick map:
+
+| Location | What it does | When to uncomment |
+|---|---|---|
+| `cleaner.py` lines 73–77 | Outlier filtering (replaces values > threshold with NaN) | If you want to strip outliers during cleaning instead of flagging them in plotter |
+| `plotter.py` weekly time series block | Weekly PM 2.5 time series plots (hourly averages) | Early-stage data exploration / visual dropout assessment |
+| `plotter.py` daily average block | Daily mean time series per station | Trend visualization |
+| `plotter.py` Realization Fire filter | Restricts data to Nov 19 02:00–06:00 UTC | Wildfire event deep-dive |
+| `plotter.py` point-for-point block | Minute-level scatter plots (no hourly averaging) | If you need finer temporal resolution comparisons |
+| `plotter.py` `plt.savefig(...)` | Saves plot to disk | Uncomment when you want to keep output files; currently plots only print to screen |
+| `plotter.py` `bias_df.to_csv(...)` | Saves bias summary table | Uncomment to export statistics to CSV |
+| `stats.py` sensortoolkit imports | EPA's sensortoolkit analysis library | If sensortoolkit is installed and you want EPA-standard metrics |
