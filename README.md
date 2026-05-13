@@ -134,7 +134,7 @@ there if the study expands.
 
 ## CONFIG Flags Reference
 
-All behavior is controlled through CONFIG blocks — no code commenting or uncommenting needed.
+All behavior is controlled through CONFIG blocks.
 Each script lists its own flags at the top of `main()` with descriptions.
 
 ### `cleaner.py`
