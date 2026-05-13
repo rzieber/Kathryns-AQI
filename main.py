@@ -18,10 +18,11 @@ def main(clean:bool=False, plot:bool=False, statistics:bool=False):
     if clean:
         # aqi_threshold: PM 2.5 values above this (µg/m³) are flagged as outliers.
         # 50.0 was chosen to separate typical urban background from smoke/event episodes.
+        # See cleaner.py to control outlier filtering
         cleaner.main("data/raw", "data/reformatted", 50.0)
 
     if plot:
-        # See plotter.py script to control which plots get generated
+        # See plotter.py to control which plots get generated
         plotter.main("data/reformatted", "plots")
 
     if statistics:
