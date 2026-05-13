@@ -36,8 +36,7 @@ plus the Erie Community Center (ECC) reference station nearby:
 | 3D-PAWS Instrument 154 | `AQ_Comparison_1_5min` | 5-minute sampling interval; resolution comparison |
 
 A wildfire event (Realization Fire) occurred on **Nov 19 2025, 02:00–06:00 UTC** and is of
-special interest — there is a time-window filter in `plotter.py` you can uncomment to zoom in
-on this event.
+special interest — set `FILTER_REALIZATION_FIRE = True` in `plotter.py` to zoom in on this event.
 
 ---
 
@@ -48,7 +47,8 @@ on this event.
 ├── main.py          # Entry point — controls which steps to run
 ├── cleaner.py       # Step 1: standardizes raw CSV files from all sources
 ├── plotter.py       # Step 2: creates scatter plots with statistics
-├── stats.py         # Step 3: calculates summary statistics (outlier counts)
+├── stats.py         # Step 3: calculates and saves summary statistics
+├── analysis.py      # Shared helpers: stat computation, hourly resampling, study/label definitions
 ├── data/
 │   ├── raw/         # Original CSV files from sensors and reference stations
 │   │   ├── 3D-PAWS_Instrument-*.csv      — 3D-PAWS sensor data
@@ -58,6 +58,7 @@ on this event.
 │   │   └── daily_*.csv                   — EPA daily aggregates (not used)
 │   └── reformatted/
 │       └── cleaned/ # Output of cleaner.py; input to plotter.py and stats.py
+├── plots/           # Output of plotter.py (scatter plots)
 └── stats/
     └── test/        # Output of stats.py
 ```
@@ -69,8 +70,6 @@ on this event.
 ### Prerequisites
 - Python 3.9+
 - `pandas`, `numpy`, `matplotlib`
-- `data_gap_filler` module from the `3D-PAWS_Data_Processing_Tools` repo
-  (update `gap_filler_path` in `cleaner.py` to point at your local clone)
 
 ### Running the pipeline
 
@@ -82,21 +81,32 @@ main(clean=True, plot=True, statistics=True)
 
 - **`clean=True`** — reads `data/raw/`, writes standardized CSVs to `data/reformatted/cleaned/`
 - **`plot=True`** — reads `data/reformatted/`, generates scatter plots and prints statistics
-- **`statistics=True`** — reads `data/`, writes outlier count CSV to `stats/test/`
+- **`statistics=True`** — reads `data/`, writes `pair_stats.csv` and `total_outliers.csv` to `stats/test/`
 
 You can also run each module directly from the command line:
 
 ```bash
 python cleaner.py data/raw data/reformatted 50.0
-python plotter.py data/reformatted /path/to/output
+python plotter.py data/reformatted plots
 python stats.py data stats/test
 ```
 
 ### Configuring which study to run
 
-In `plotter.py`, find the `all_labels` list and fill it with the instruments you want to
-compare. The script generates all pairwise scatter plots from that list. See the comments
-in that section for which labels belong to which study.
+Each script (`plotter.py`, `stats.py`, `cleaner.py`) has a **CONFIG block** at the top of its
+`main()` function. This is the only place you need to edit to change behavior — no
+commenting or uncommenting required.
+
+The most common setting to change is `STUDY`:
+
+```python
+STUDY = 1   # Erie / AJAX (Dec 2024 – May 2025)
+STUDY = 2   # Boulder / ECC (Oct – Dec 2025)
+```
+
+This controls which instruments are included in all pairwise comparisons. Study instrument
+definitions live in `analysis.py` (`STUDY_LABELS` and `FILE_LABEL_MAP`) — add new instruments
+there if the study expands.
 
 ---
 
@@ -110,7 +120,8 @@ in that section for which labels belong to which study.
   of the bulk of data points; outliers outside this range are still plotted.
 
 - **Hourly averages** — all scatter plots compare 1-hour averages (not minute-by-minute) to
-  reduce noise. There is commented-out code for point-for-point (minute-level) comparison.
+  reduce noise. There is an optional point-for-point (minute-level) mode controlled by a flag
+  in `plotter.py`.
 
 - **Bias split at 10 µg/m³** — bias is reported separately for high (>10) and low (≤10)
   concentration regimes because sensor behavior often differs between clean-air and polluted
@@ -121,18 +132,33 @@ in that section for which labels belong to which study.
 
 ---
 
-## Commented-Out Code Guide
+## CONFIG Flags Reference
 
-The scripts contain several commented-out blocks that are preserved for reference or for
-re-enabling specific analyses. Here is a quick map:
+All behavior is controlled through CONFIG blocks — no code commenting or uncommenting needed.
+Each script lists its own flags at the top of `main()` with descriptions.
 
-| Location | What it does | When to uncomment |
+### `cleaner.py`
+
+| Flag | Default | What it does |
 |---|---|---|
-| `cleaner.py` lines 73–77 | Outlier filtering (replaces values > threshold with NaN) | If you want to strip outliers during cleaning instead of flagging them in plotter |
-| `plotter.py` weekly time series block | Weekly PM 2.5 time series plots (hourly averages) | Early-stage data exploration / visual dropout assessment |
-| `plotter.py` daily average block | Daily mean time series per station | Trend visualization |
-| `plotter.py` Realization Fire filter | Restricts data to Nov 19 02:00–06:00 UTC | Wildfire event deep-dive |
-| `plotter.py` point-for-point block | Minute-level scatter plots (no hourly averaging) | If you need finer temporal resolution comparisons |
-| `plotter.py` `plt.savefig(...)` | Saves plot to disk | Uncomment when you want to keep output files; currently plots only print to screen |
-| `plotter.py` `bias_df.to_csv(...)` | Saves bias summary table | Uncomment to export statistics to CSV |
-| `stats.py` sensortoolkit imports | EPA's sensortoolkit analysis library | If sensortoolkit is installed and you want EPA-standard metrics |
+| `FILTER_OUTLIERS` | `False` | Replace PM 2.5 readings above `aqi_threshold` with NaN during cleaning and write a separate outlier CSV. When `False`, outliers are left in the data and flagged visually in `plotter.py` instead. |
+
+### `plotter.py`
+
+| Flag | Default | What it does |
+|---|---|---|
+| `STUDY` | `1` | Selects which instrument set to compare (1 = Erie/AJAX, 2 = Boulder/ECC) |
+| `PM_COL` | `'PM 2.5'` | Which PM column to compare across instruments |
+| `SAVE_PLOTS` | `True` | Save scatter plots to the output directory |
+| `SAVE_BIAS_CSV` | `False` | Save the bias summary table to `output/bias_summary.csv` |
+| `PLOT_WEEKLY_TIMESERIES` | `False` | Weekly hourly-average time series plots (useful for spotting data gaps) |
+| `PLOT_DAILY_AVERAGES` | `False` | Daily-average time series plots, one line per instrument |
+| `PLOT_POINT_FOR_POINT` | `False` | Minute-level scatter plots instead of hourly averages |
+| `FILTER_REALIZATION_FIRE` | `False` | Restrict all data to the Nov 19 2025 wildfire event window (02:00–06:00 UTC) |
+
+### `stats.py`
+
+| Flag | Default | What it does |
+|---|---|---|
+| `STUDY` | `1` | Selects which instrument set to compute statistics for (should match `plotter.py`) |
+| `PM_COL` | `'PM 2.5'` | Which PM column to compare across instruments |
