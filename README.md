@@ -1,4 +1,4 @@
-# Kathryn's AQI Sensor Comparison — 2025
+# AQI Sensor Comparison — 2025
 
 Air quality sensor performance assessment comparing low-cost 3D-PAWS instruments against reference stations.
 
