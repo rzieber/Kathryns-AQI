@@ -1,13 +1,12 @@
 # Kathryn's AQI Sensor Comparison — 2025
 
-Air quality sensor performance assessment comparing low-cost 3D-PAWS instruments against
-regulatory-grade reference stations.
+Air quality sensor performance assessment comparing low-cost 3D-PAWS instruments against reference stations.
 
 ---
 
 ## Background
 
-This project evaluates whether 3D-PAWS (3-Dimensional Printed Automatic Weather Station)
+This project evaluates whether 3D-PAWS (3-D Printed Automatic Weather Station)
 instruments can reliably track particulate matter (PM) concentrations compared to established
 reference-grade sensors. We focus on **PM 1.0** and **PM 2.5** only — PM 10 readings from
 3D-PAWS were determined to be unreliable and are excluded from analysis.
@@ -19,10 +18,10 @@ Compares four instruments co-located (or nearby) at the AJAX reference station i
 
 | Instrument | Label in code | Notes |
 |---|---|---|
-| AJAX reference station | `AJAX Reference` | Regulatory-grade; the ground truth |
-| 3D-PAWS Instrument 16 | `3D-PAWS_AQ_Testbed` | Co-located with AJAX; primary 3D-PAWS test unit |
+| AJAX reference station | `AJAX Reference` | Reference; the ground truth |
+| 3D-PAWS Instrument 16 | `3D-PAWS_AQ_Testbed` | Nearby; included for additional comparison | 
 | 3D-PAWS Instrument 18 | `Payne Observation Site` | Supervisor's personal weather station |
-| 3D-PAWS Instrument 127 | `AQ Comparison AJAX` | Nearby; included for additional comparison |
+| 3D-PAWS Instrument 127 | `AQ Comparison AJAX` | Co-located with AJAX; primary 3D-PAWS test unit |
 
 ### Study 2 — Boulder / Erie Community Center Site (Oct – Dec 2025)
 Compares two 3D-PAWS instruments co-located with Colorado State Health (CU Boulder) sensor,
