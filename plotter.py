@@ -1,9 +1,9 @@
 import warnings
 import pandas as pd
-import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
 import argparse
+import analysis
 
 
 def main(data:str, output:str):
@@ -56,25 +56,6 @@ def main(data:str, output:str):
     FILTER_REALIZATION_FIRE = False
 
     # ============================================================
-    # STUDY DEFINITIONS — instrument labels for each study
-    # ============================================================
-
-    STUDY_LABELS = {
-        1: [
-            'AJAX Reference',
-            '3D-PAWS_AQ_Testbed',
-            'Payne Observation Site',
-            'AQ Comparison AJAX',
-        ],
-        2: [
-            'CU Boulder Reference',
-            'Erie Community Center Reference',
-            'AQ_Comparison_2',
-            'AQ_Comparison_1_5min',
-        ],
-    }
-
-    # ============================================================
     # Load all cleaned CSVs into dataframes
     # ============================================================
     dataframes = []
@@ -89,6 +70,10 @@ def main(data:str, output:str):
             print("Reading", name)
 
             if name.startswith("daily"):
+                continue
+
+            label = analysis.FILE_LABEL_MAP.get(name)
+            if label is None:
                 continue
 
             df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
@@ -110,113 +95,25 @@ def main(data:str, output:str):
 
             df.set_index('time')
             dataframes.append(df)
-
-            # Map raw file stems to human-readable labels.
-            # If you add a new instrument, add a new elif here.
-            # Study 1 — Erie / AJAX (Dec 2024 – May 2025):
-            if name == '3D-PAWS_Instrument-16_2024-12-06_2025-05-12':
-                names.append('3D-PAWS_AQ_Testbed')
-            elif name == '3D-PAWS_Instrument-18_2024-12-06_2025-05-12':
-                names.append('Payne Observation Site')
-            elif name == '3D-PAWS_Instrument-127_2024-12-06_2025-05-12':
-                names.append('AQ Comparison AJAX')
-            elif name == 'UplandS_1min_S12.6.24_E5.12.25':
-                names.append('AJAX Reference')
-            # Study 2 — Boulder / ECC (Oct – Dec 2025):
-            elif name == 'ECC_pm_complete':
-                names.append('Erie Community Center Reference')
-            elif name == '3D-PAWS_Instrument-153_2025-10-23_2025-12-09':
-                names.append('AQ_Comparison_2')
-            elif name == '3D-PAWS_Instrument-154_2025-10-23_2025-12-09':
-                names.append('AQ_Comparison_1_5min')
-            elif name == 'Marine Street 1 minute data_102325-120825':
-                names.append('CU Boulder Reference')
+            names.append(label)
 
     print()
 
     df_by_name = {label: df for label, df in zip(names, dataframes)}
 
     # ============================================================
-    # Helper functions
+    # Scatter plot with statistics (plotting-only wrapper)
     # ============================================================
-
-    def calculate_slope(x, y):
-        """Linear regression slope and intercept using polyfit."""
-        if len(x) < 2:
-            return np.nan, np.nan
-        slope, intercept = np.polyfit(x, y, 1)
-        return slope, intercept
-
-    def _prepare_hourly_df(df, col):
-        """
-        Convert timestamps to UTC-naive and resample to 1-hour averages.
-        Returns None if col is not present in df.
-        """
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=FutureWarning)
-
-            out = df.copy()
-            if 'time' not in out.columns:
-                out = out.reset_index()
-
-            out['time'] = pd.to_datetime(out['time'], errors='coerce', utc=True).dt.tz_localize(None)
-            if col not in out.columns:
-                return None
-
-            out[col] = pd.to_numeric(out[col], errors='coerce')
-            out = out[['time', col]].dropna()
-            out = out.set_index('time').resample('1H').mean().reset_index()
-            return out.dropna()
-
-    def _prepare_df(df, col):
-        """Parse time and coerce numeric; returns df with exact timestamps (no resampling)."""
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=FutureWarning)
-            out = df.copy()
-            if 'time' not in out.columns:
-                out = out.reset_index()
-            out['time'] = pd.to_datetime(out['time'], errors='coerce', utc=True).dt.tz_localize(None)
-            if col not in out.columns:
-                return None
-            out[col] = pd.to_numeric(out[col], errors='coerce')
-            return out[['time', col]].dropna()
 
     def _stats_and_scatter(x, y, is_outlier, xlabel, ylabel, title, savepath, num_points, lim=50):
         """
         Compute comparison statistics and generate a scatter plot.
 
-        Statistics reported:
-          slope/intercept — linear regression fit on cleaned (non-outlier) points only
-          r               — Pearson correlation coefficient across all points
-          RMSE            — root mean square error across all points
-          overall_bias    — mean(y - x); positive means instrument reads HIGH vs reference
-          bias_high/low   — bias split at 10 µg/m³ to capture regime-dependent behavior
-                            (sensors often behave differently at low vs high concentrations)
-
-        is_outlier: boolean array; True where either station exceeds 50 µg/m³.
-                    Outlier points are shown in red; cleaned points in blue.
-
+        Delegates all stat computation to analysis.compute_pair_stats.
+        is_outlier: True where either station exceeds 50 µg/m³ — outlier points shown in red.
         lim: axis maximum for both x and y (default 50, active calls use 40).
         """
-        r    = np.corrcoef(x, y)[0, 1] if len(x) > 1 else np.nan
-        rmse = np.sqrt(np.mean((x - y) ** 2)) if len(x) > 0 else np.nan
-
-        # Positive overall_bias means the y-axis instrument reads higher than x.
-        overall_bias = np.mean(y - x) if len(x) > 0 else np.nan
-
-        mask_high = (x > 10)
-        mask_low  = (x <= 10)
-
-        bias_high = np.mean(y[mask_high] - x[mask_high]) if np.sum(mask_high) > 0 else np.nan
-        bias_low  = np.mean(y[mask_low] - x[mask_low]) if np.sum(mask_low) > 0 else np.nan
-
-        n_high = np.sum(mask_high)
-        n_low  = np.sum(mask_low)
-
-        # Slope is computed on cleaned points only so outliers don't skew the fit line.
-        clean_x = x[~is_outlier]
-        clean_y = y[~is_outlier]
-        slope, intercept = calculate_slope(clean_x, clean_y)
+        stats = analysis.compute_pair_stats(x, y, is_outlier)
 
         plt.figure(figsize=(16, 16))
         plt.scatter(x[~is_outlier], y[~is_outlier],
@@ -242,14 +139,14 @@ def main(data:str, output:str):
         plt.legend()
 
         stats_text = (
-            f"Slope = {slope:.3f}\n"
-            f"Intercept = {intercept:3f}\n"
-            f"r = {r:.2f}\n"
-            f"RMSE = {rmse:.2f}\n"
-            f"Overall Bias = {overall_bias:.2f}\n"
+            f"Slope = {stats['slope']:.3f}\n"
+            f"Intercept = {stats['intercept']:3f}\n"
+            f"r = {stats['r']:.2f}\n"
+            f"RMSE = {stats['rmse']:.2f}\n"
+            f"Overall Bias = {stats['overall_bias']:.2f}\n"
             f"\n"
-            f"Bias (>10): {bias_high:.2f} (n={n_high})\n"
-            f"Bias (≤10): {bias_low:.2f} (n={n_low})"
+            f"Bias (>10): {stats['bias_high']:.2f} (n={stats['n_high']})\n"
+            f"Bias (≤10): {stats['bias_low']:.2f} (n={stats['n_low']})"
         )
 
         plt.text(
@@ -265,17 +162,7 @@ def main(data:str, output:str):
         print(stats_text)
         plt.close()
 
-        return {
-            'slope': slope,
-            'intercept': intercept,
-            'r': r,
-            'rmse': rmse,
-            'overall_bias': overall_bias,
-            'bias_high': bias_high,
-            'bias_low': bias_low,
-            'n_high': n_high,
-            'n_low': n_low
-        }
+        return stats
 
     # ============================================================
     # OPTIONAL: Weekly time series plots (hourly averages)
@@ -287,7 +174,7 @@ def main(data:str, output:str):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
 
-            study_names = STUDY_LABELS[STUDY]
+            study_names = analysis.STUDY_LABELS[STUDY]
             cmap = plt.get_cmap('tab10')
             color_map = {name: cmap(i % cmap.N) for i, name in enumerate(sorted(set(study_names)))}
 
@@ -336,7 +223,7 @@ def main(data:str, output:str):
     # Enable by setting PLOT_DAILY_AVERAGES = True in CONFIG.
     # ============================================================
     if PLOT_DAILY_AVERAGES:
-        study_names = STUDY_LABELS[STUDY]
+        study_names = analysis.STUDY_LABELS[STUDY]
         for i, df in enumerate(dataframes):
             if names[i] not in study_names:
                 continue
@@ -360,7 +247,7 @@ def main(data:str, output:str):
     # ============================================================
     # Hourly-average scatter plots with statistics
     # ============================================================
-    all_labels = STUDY_LABELS[STUDY]
+    all_labels = analysis.STUDY_LABELS[STUDY]
 
     prepped_hourly_data = {}
     for label in all_labels:
@@ -369,7 +256,7 @@ def main(data:str, output:str):
             print(f"[WARN] Could not find dataframe for {label}")
             continue
 
-        prepped = _prepare_hourly_df(df, PM_COL)
+        prepped = analysis.prepare_hourly_df(df, PM_COL)
         if prepped is None:
             print(f"[WARN] {label} missing column '{PM_COL}'")
             continue
@@ -451,7 +338,7 @@ def main(data:str, output:str):
             if df is None:
                 print(f"[WARN] Could not find dataframe for {label}")
                 continue
-            prepped = _prepare_df(df, PM_COL)
+            prepped = analysis.prepare_df(df, PM_COL)
             if prepped is None:
                 print(f"[WARN] {label} missing column '{PM_COL}'")
                 continue

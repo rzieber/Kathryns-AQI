@@ -1,28 +1,22 @@
 import warnings
 import pandas as pd
-import numpy as np
 from pathlib import Path
 import argparse
-
-# sensortoolkit is EPA's analysis library for evaluating low-cost sensors against
-# regulatory-grade reference instruments. It's not installed in this environment,
-# so the import is commented out. If you have it installed, uncomment these lines
-# and see https://sensortoolkit.readthedocs.io for usage.
-# import sensortoolkit as stk
-# from sensortoolkit import *
+import analysis
 
 
 def main(data:str, output:str):
     """
-    Reads cleaned and outlier CSVs from data/, counts outliers per station,
-    and writes a summary CSV to output/.
+    Reads cleaned CSVs from data/, computes pairwise hourly-average statistics
+    for all instrument combinations in the selected study, and writes summary CSVs
+    to output/.
 
-    Currently implemented:
-      - Total outlier count per station  →  total_outliers.csv
+    Outputs:
+      pair_stats.csv     — slope, intercept, r, RMSE, bias per instrument pair
+      total_outliers.csv — outlier reading count per station (only populated when
+                           FILTER_OUTLIERS = True in cleaner.py)
 
-    Not yet implemented (see TODO comment at the bottom):
-      - Correlation coefficient, RMSE, standard deviation per station pair
-        (these are computed per-comparison in plotter.py but not aggregated here)
+    All user-configurable options are in the CONFIG block at the top of this function.
     """
     try:
         data = Path(data)
@@ -30,20 +24,24 @@ def main(data:str, output:str):
     except Exception as e:
         print(f"Error parsing directory to Path: {e}")
 
-    # variable_mapper translates between 3D-PAWS internal column names and
-    # the standardized names used by the AJAX reference station.
-    # Only PM 1.0 and PM 2.5 are used — PM 10 from 3D-PAWS is unreliable.
-    variable_mapper = {
-        'pm1s10': 'PM 1.0',   # 3D-PAWS standard PM 1.0
-        'pm1s25': 'PM 2.5',   # 3D-PAWS standard PM 2.5
-        'pm1e10': 'PM 1.0',   # 3D-PAWS extended PM 1.0
-        'pm1e25': 'PM 2.5'    # 3D-PAWS extended PM 2.5 (renamed to 'PM 2.5' by cleaner.py)
-    }
+    # ============================================================
+    # CONFIG — edit these values to control what the script does
+    # ============================================================
+
+    # Which study to run. Must match the STUDY setting used in plotter.py.
+    #   1 = Erie / AJAX   (Dec 2024 – May 2025)
+    #   2 = Boulder / ECC (Oct – Dec 2025)
+    STUDY = 1
+
+    # PM column to compare. Must exist in all selected instrument CSVs.
+    #   'PM 2.5'  — fine particulate matter
+    #   'PM 1.0'  — ultrafine particulate matter
+    PM_COL = 'PM 2.5'
 
     # ============================================================
-    # Load all cleaned and outlier CSVs
+    # Load all cleaned CSVs and count outlier files
     # ============================================================
-    dataframes = []
+    df_by_name = {}
     outliers = {}
 
     with warnings.catch_warnings():
@@ -51,37 +49,87 @@ def main(data:str, output:str):
         warnings.simplefilter("ignore", category=FutureWarning)
 
         for csv in data.rglob("*.csv"):
-            name = str(csv.stem)
-            df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
+            stem = csv.stem
 
-            print("Reading", name)
-
-            df['week'] = df['time'].dt.to_period('W')
-            df['day']  = df['time'].dt.to_period('D')
-            df['hour'] = df['time'].dt.to_period('H')
-            df.set_index('time')
-
-            if name.endswith("_outliers"):
-                # Outlier files are written by cleaner.py when outlier filtering is enabled.
-                # Count how many rows (individual outlier readings) exist per station.
-                outliers[name] = len(df)
-            elif name.endswith("_cleaned"):
-                dataframes.append(df)
-            else:
+            if stem.endswith("_outliers"):
+                # Outlier files written by cleaner.py when FILTER_OUTLIERS = True.
+                outliers[stem] = len(pd.read_csv(csv, low_memory=False))
                 continue
 
-    # Write outlier counts. If no outlier files were found (because filtering is
-    # disabled in cleaner.py), this will produce an empty table — that's expected.
+            # Strip _cleaned suffix if present (cleaner.py appends it).
+            base = stem[:-len("_cleaned")] if stem.endswith("_cleaned") else stem
+            label = analysis.FILE_LABEL_MAP.get(base)
+            if label is None:
+                continue
+
+            print("Reading", stem)
+            df = pd.read_csv(csv, low_memory=False, parse_dates=['time'])
+
+            if df['time'].dt.tz is None:
+                df['time'] = df['time'].dt.tz_localize('UTC')
+            else:
+                df['time'] = df['time'].dt.tz_convert('UTC')
+
+            df_by_name[label] = df
+
+    print()
+
+    # ============================================================
+    # Outlier counts
+    # ============================================================
+    output.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(
         list(outliers.items()), columns=['Station Name', 'Number of Outliers']
     ).to_csv(output / "total_outliers.csv", index=False)
 
-    print()
+    # ============================================================
+    # Pairwise hourly-average statistics
+    # ============================================================
+    all_labels = analysis.STUDY_LABELS[STUDY]
 
-    # TODO: aggregate per-pair statistics (r, RMSE, std) across all station combinations.
-    # These are currently computed inside plotter._stats_and_scatter() but only printed
-    # to the console, not saved here. Consider pulling that logic into a shared helper
-    # and calling it from both plotter.py and stats.py.
+    prepped = {}
+    for label in all_labels:
+        df = df_by_name.get(label)
+        if df is None:
+            print(f"[WARN] No data found for {label}")
+            continue
+        hourly = analysis.prepare_hourly_df(df, PM_COL)
+        if hourly is None:
+            print(f"[WARN] {label} missing column '{PM_COL}'")
+            continue
+        prepped[label] = hourly
+        print(f"[INFO] Prepared hourly data for {label}: {len(hourly)} hours")
+
+    stats_results = {}
+
+    for i, label1 in enumerate(all_labels):
+        for label2 in all_labels[i+1:]:
+            if label1 not in prepped or label2 not in prepped:
+                continue
+
+            merged = pd.merge(
+                prepped[label1].rename(columns={PM_COL: 'val1'}),
+                prepped[label2].rename(columns={PM_COL: 'val2'}),
+                on='time',
+                how='inner'
+            ).dropna()
+
+            if merged.empty:
+                print(f"[INFO] No time overlap for {label1} vs {label2}.")
+                continue
+
+            is_outlier = (merged['val1'] > 50) | (merged['val2'] > 50)
+            pair_stats = analysis.compute_pair_stats(
+                merged['val1'].values, merged['val2'].values, is_outlier.values
+            )
+            stats_results[f"{label1} vs {label2}"] = pair_stats
+            print(f"[INFO] Computed stats: {label1} vs {label2}")
+
+    stats_df = pd.DataFrame(stats_results).T
+    stats_df.to_csv(output / "pair_stats.csv")
+
+    print()
+    print(stats_df)
 
 
 def parse_args():
