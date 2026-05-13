@@ -9,20 +9,70 @@ import argparse
 def main(data:str, output:str):
     """
     Reads cleaned CSVs, generates pairwise hourly-average scatter plots for all
-    instrument combinations listed in all_labels, and prints comparison statistics.
+    instruments in the selected study, and prints comparison statistics.
 
-    To switch between Study 1 (Erie/AJAX) and Study 2 (Boulder/ECC), update the
-    all_labels list near the bottom of this function. See comments there for which
-    labels belong to each study.
-
-    To save plots to disk, uncomment the plt.savefig() call in _stats_and_scatter.
-    To save the bias summary table, uncomment bias_df.to_csv() near the end.
+    All user-configurable options are in the CONFIG block at the top of this function.
     """
     try:
         data = Path(data)
         output = Path(output)
     except Exception as e:
         print(f"Error parsing directory: {e}")
+
+    # ============================================================
+    # CONFIG — edit these values to control what the script does
+    # ============================================================
+
+    # Which study to run. Controls which instruments are compared.
+    #   1 = Erie / AJAX   (Dec 2024 – May 2025)
+    #   2 = Boulder / ECC (Oct – Dec 2025)
+    STUDY = 1
+
+    # PM column to compare. Must exist in all selected instrument CSVs.
+    #   'PM 2.5'  — fine particulate matter
+    #   'PM 1.0'  — ultrafine particulate matter
+    PM_COL = 'PM 2.5'
+
+    # Save hourly scatter plots to the output directory.
+    SAVE_PLOTS = True
+
+    # Save the bias summary table to output/bias_summary.csv.
+    SAVE_BIAS_CSV = False
+
+    # Generate weekly hourly-average time series plots (useful for spotting data gaps).
+    PLOT_WEEKLY_TIMESERIES = False
+
+    # Generate daily-average time series plots (one line per instrument).
+    PLOT_DAILY_AVERAGES = False
+
+    # Generate point-for-point (minute-level) scatter plots instead of hourly averages.
+    # Works best when comparing 3D-PAWS instruments against each other; instruments
+    # must share exact timestamps to produce matches.
+    # Note: for Study 2, minute-level data is only available for Instrument 153 and
+    # CU Boulder — Instrument 154 uses 5-min intervals.
+    PLOT_POINT_FOR_POINT = False
+
+    # Restrict all data to the Realization Fire window (Nov 19 2025, 02:00–06:00 UTC).
+    FILTER_REALIZATION_FIRE = False
+
+    # ============================================================
+    # STUDY DEFINITIONS — instrument labels for each study
+    # ============================================================
+
+    STUDY_LABELS = {
+        1: [
+            'AJAX Reference',
+            '3D-PAWS_AQ_Testbed',
+            'Payne Observation Site',
+            'AQ Comparison AJAX',
+        ],
+        2: [
+            'CU Boulder Reference',
+            'Erie Community Center Reference',
+            'AQ_Comparison_2',
+            'AQ_Comparison_1_5min',
+        ],
+    }
 
     # ============================================================
     # Load all cleaned CSVs into dataframes
@@ -53,17 +103,16 @@ def main(data:str, output:str):
             df['day']  = df['time'].dt.to_period('D')
             df['hour'] = df['time'].dt.to_period('H')
 
-            # Uncomment this block to restrict all data to the Realization Fire window
-            # (Nov 19 2025, 02:00–06:00 UTC) for the wildfire event deep-dive.
-            # start_time = pd.Timestamp('2025-11-19 02:00:00', tz='UTC')
-            # end_time   = pd.Timestamp('2025-11-19 06:00:00', tz='UTC')
-            # df = df[(df['time'] >= start_time) & (df['time'] <= end_time)]
+            if FILTER_REALIZATION_FIRE:
+                start_time = pd.Timestamp('2025-11-19 02:00:00', tz='UTC')
+                end_time   = pd.Timestamp('2025-11-19 06:00:00', tz='UTC')
+                df = df[(df['time'] >= start_time) & (df['time'] <= end_time)]
 
             df.set_index('time')
             dataframes.append(df)
 
-            # Map raw file stems to human-readable labels used throughout the rest
-            # of this script. If you add a new instrument, add a new elif here.
+            # Map raw file stems to human-readable labels.
+            # If you add a new instrument, add a new elif here.
             # Study 1 — Erie / AJAX (Dec 2024 – May 2025):
             if name == '3D-PAWS_Instrument-16_2024-12-06_2025-05-12':
                 names.append('3D-PAWS_AQ_Testbed')
@@ -85,109 +134,18 @@ def main(data:str, output:str):
 
     print()
 
-    # ============================================================
-    # OPTIONAL: Weekly time series plots (hourly averages)
-    # Useful for visual data dropout assessment — gaps in the line
-    # show where a sensor stopped reporting.
-    # To enable: uncomment this entire block and update the names
-    # filter list to match the study you're running.
-    # ============================================================
-    # with warnings.catch_warnings():
-    #     warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
-    #
-    #     # Filter to only the stations relevant to the current study.
-    #     # For Study 1 (Erie/AJAX), use ajax_names. For Study 2 (Boulder), use boulder_names.
-    #     boulder_names = [
-    #         n for n in names
-    #         if n not in [
-    #             '3D-PAWS_Instrument-16_2024-12-06_2025-05-12',
-    #             '3D-PAWS_Instrument-18_2024-12-06_2025-05-12',
-    #             '3D-PAWS_Instrument-127_2024-12-06_2025-05-12',
-    #             'UplandS_1min_S12.6.24_E5.12.25',
-    #             '3D-PAWS_Instrument-153_2025-10-23_2025-12-09'
-    #         ]
-    #     ]
-    #
-    #     cmap = plt.get_cmap('tab10')
-    #     color_map = {name: cmap(i % cmap.N) for i, name in enumerate(sorted(set(boulder_names)))}
-    #
-    #     weeks = sorted(set().union(*(df['week'].unique() for df in dataframes)))
-    #
-    #     for week in weeks:
-    #         week_str = str(week)
-    #         plt.figure(figsize=(24, 12))
-    #
-    #         for i, df in enumerate(dataframes):
-    #             weekly_df = df[df['week'] == week]
-    #             if weekly_df.empty:
-    #                 continue
-    #
-    #             weekly_df['time'] = pd.to_datetime(weekly_df['time'])
-    #             weekly_df = weekly_df.set_index('time')
-    #
-    #             name = names[i]
-    #             plt.plot(
-    #                 weekly_df.index,
-    #                 weekly_df['PM 2.5'],
-    #                 label=f"{name} PM 2.5",
-    #                 color=color_map[name]
-    #             )
-    #
-    #         if not plt.gca().has_data():
-    #             plt.close()
-    #             continue
-    #
-    #         plt.xlabel("Time")
-    #         plt.ylabel("PM 2.5 (µg/m³)")
-    #         plt.title(f"{(week_str).replace('/',' to ')} PM 2.5")
-    #         plt.legend()
-    #         plt.grid(True)
-    #         plt.tight_layout()
-    #         plt.savefig(output / f"{week_str[:10]}-{week_str[11:]}_PM1s25_time-series.png")
-    #         plt.clf()
-    #         plt.close()
-
+    df_by_name = {label: df for label, df in zip(names, dataframes)}
 
     # ============================================================
-    # OPTIONAL: Daily average time series plots (one line per station)
-    # Shows longer-term concentration trends. Point source:
-    # set data= to raw/ for plots with outliers, cleaned/ for without.
-    # ============================================================
-    # for i, df in enumerate(dataframes):
-    #     variable_list = ['PM 2.5']
-    #
-    #     daily_mean_df = df.groupby('day')[variable_list].mean()
-    #     daily_mean_df.index = daily_mean_df.index.to_timestamp()
-    #
-    #     plt.figure(figsize=(12, 6))
-    #     for var in variable_list:
-    #         plt.plot(
-    #             daily_mean_df.index,
-    #             daily_mean_df[var],
-    #             label=f"{var} Daily Mean"
-    #         )
-    #     plt.xlabel("Day")
-    #     plt.ylabel("Particulate Concentration (µg/m³)")
-    #     plt.title("Daily Average PM Variables Over Time")
-    #     plt.legend()
-    #     plt.grid(True)
-    #     plt.tight_layout()
-    #     plt.savefig(output / f"{names[i]}_daily_mean.png")
-    #     plt.clf()
-    #     plt.close()
-
-
-    # ============================================================
-    # Hourly-average scatter plots with statistics
+    # Helper functions
     # ============================================================
 
     def calculate_slope(x, y):
         """Linear regression slope and intercept using polyfit."""
         if len(x) < 2:
-            return np.nan
+            return np.nan, np.nan
         slope, intercept = np.polyfit(x, y, 1)
         return slope, intercept
-
 
     def _prepare_hourly_df(df, col):
         """
@@ -210,6 +168,18 @@ def main(data:str, output:str):
             out = out.set_index('time').resample('1H').mean().reset_index()
             return out.dropna()
 
+    def _prepare_df(df, col):
+        """Parse time and coerce numeric; returns df with exact timestamps (no resampling)."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            out = df.copy()
+            if 'time' not in out.columns:
+                out = out.reset_index()
+            out['time'] = pd.to_datetime(out['time'], errors='coerce', utc=True).dt.tz_localize(None)
+            if col not in out.columns:
+                return None
+            out[col] = pd.to_numeric(out[col], errors='coerce')
+            return out[['time', col]].dropna()
 
     def _stats_and_scatter(x, y, is_outlier, xlabel, ylabel, title, savepath, num_points, lim=50):
         """
@@ -289,8 +259,8 @@ def main(data:str, output:str):
         )
         plt.tight_layout()
 
-        # Uncomment to save plots to disk:
-        # plt.savefig(savepath, dpi=200)
+        if SAVE_PLOTS:
+            plt.savefig(savepath, dpi=200)
 
         print(stats_text)
         plt.close()
@@ -307,38 +277,91 @@ def main(data:str, output:str):
             'n_low': n_low
         }
 
-    # Map labels to their corresponding dataframes for lookup below.
-    df_by_name = {label: df for label, df in zip(names, dataframes)}
+    # ============================================================
+    # OPTIONAL: Weekly time series plots (hourly averages)
+    # Useful for visual data dropout assessment — gaps in the line
+    # show where a sensor stopped reporting.
+    # Enable by setting PLOT_WEEKLY_TIMESERIES = True in CONFIG.
+    # ============================================================
+    if PLOT_WEEKLY_TIMESERIES:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=pd.errors.SettingWithCopyWarning)
 
-    # ----------------------------------------------------------------
-    # TO CONFIGURE: list the instruments you want to compare.
-    # The script generates all pairwise scatter plots from this list.
-    #
-    # Study 1 — Erie / AJAX (Dec 2024 – May 2025):
-    #   'AJAX Reference', '3D-PAWS_AQ_Testbed', 'Payne Observation Site', 'AQ Comparison AJAX'
-    #
-    # Study 2 — Boulder / ECC (Oct – Dec 2025):
-    #   'CU Boulder Reference', 'Erie Community Center Reference',
-    #   'AQ_Comparison_2', 'AQ_Comparison_1_5min'
-    #
-    # Mix and match as needed. Only instruments in this list will be compared.
-    # ----------------------------------------------------------------
-    all_labels = [
-        'Erie Community Center Reference',
-        'AJAX Reference',
-        '3D-PAWS_AQ_Testbed',
-        'Payne Observation Site',
-        'AQ Comparison AJAX'
-        # 'CU Boulder Reference',
-        # 'AQ_Comparison_2',
-        # 'AQ_Comparison_1_5min'
-    ]
+            study_names = STUDY_LABELS[STUDY]
+            cmap = plt.get_cmap('tab10')
+            color_map = {name: cmap(i % cmap.N) for i, name in enumerate(sorted(set(study_names)))}
 
-    # TO CONFIGURE: ensure this column name exists in all instruments listed above.
-    # 'PM 2.5' is the shared name after cleaning. Change to 'PM 1.0' for PM 1.0 comparisons.
-    pm_col = 'PM 2.5'
+            weeks = sorted(set().union(*(df['week'].unique() for df in dataframes)))
 
-    # Resample each instrument to hourly averages once, then reuse for all pairs.
+            for week in weeks:
+                week_str = str(week)
+                plt.figure(figsize=(24, 12))
+
+                for i, df in enumerate(dataframes):
+                    if names[i] not in study_names:
+                        continue
+                    weekly_df = df[df['week'] == week]
+                    if weekly_df.empty:
+                        continue
+
+                    weekly_df['time'] = pd.to_datetime(weekly_df['time'])
+                    weekly_df = weekly_df.set_index('time')
+
+                    name = names[i]
+                    plt.plot(
+                        weekly_df.index,
+                        weekly_df[PM_COL],
+                        label=f"{name} {PM_COL}",
+                        color=color_map[name]
+                    )
+
+                if not plt.gca().has_data():
+                    plt.close()
+                    continue
+
+                plt.xlabel("Time")
+                plt.ylabel(f"{PM_COL} (µg/m³)")
+                plt.title(f"{(week_str).replace('/', ' to ')} {PM_COL}")
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                output.mkdir(parents=True, exist_ok=True)
+                plt.savefig(output / f"{week_str[:10]}-{week_str[11:]}_{PM_COL.replace(' ', '_')}_time-series.png")
+                plt.clf()
+                plt.close()
+
+    # ============================================================
+    # OPTIONAL: Daily average time series plots (one line per station)
+    # Shows longer-term concentration trends.
+    # Enable by setting PLOT_DAILY_AVERAGES = True in CONFIG.
+    # ============================================================
+    if PLOT_DAILY_AVERAGES:
+        study_names = STUDY_LABELS[STUDY]
+        for i, df in enumerate(dataframes):
+            if names[i] not in study_names:
+                continue
+
+            daily_mean_df = df.groupby('day')[[PM_COL]].mean()
+            daily_mean_df.index = daily_mean_df.index.to_timestamp()
+
+            plt.figure(figsize=(12, 6))
+            plt.plot(daily_mean_df.index, daily_mean_df[PM_COL], label=f"{PM_COL} Daily Mean")
+            plt.xlabel("Day")
+            plt.ylabel("Particulate Concentration (µg/m³)")
+            plt.title(f"Daily Average {PM_COL} — {names[i]}")
+            plt.legend()
+            plt.grid(True)
+            plt.tight_layout()
+            output.mkdir(parents=True, exist_ok=True)
+            plt.savefig(output / f"{names[i]}_daily_mean.png")
+            plt.clf()
+            plt.close()
+
+    # ============================================================
+    # Hourly-average scatter plots with statistics
+    # ============================================================
+    all_labels = STUDY_LABELS[STUDY]
+
     prepped_hourly_data = {}
     for label in all_labels:
         df = df_by_name.get(label, None)
@@ -346,9 +369,9 @@ def main(data:str, output:str):
             print(f"[WARN] Could not find dataframe for {label}")
             continue
 
-        prepped = _prepare_hourly_df(df, pm_col)
+        prepped = _prepare_hourly_df(df, PM_COL)
         if prepped is None:
-            print(f"[WARN] {label} missing column '{pm_col}'")
+            print(f"[WARN] {label} missing column '{PM_COL}'")
             continue
 
         prepped_hourly_data[label] = prepped
@@ -369,8 +392,8 @@ def main(data:str, output:str):
 
             # Inner join on time: only hours where both instruments have data.
             merged = pd.merge(
-                df1.rename(columns={pm_col: 'val1'}),
-                df2.rename(columns={pm_col: 'val2'}),
+                df1.rename(columns={PM_COL: 'val1'}),
+                df2.rename(columns={PM_COL: 'val2'}),
                 on='time',
                 how='inner'
             ).dropna()
@@ -384,7 +407,7 @@ def main(data:str, output:str):
             # A point is an outlier if either instrument exceeds 50 µg/m³.
             merged['is_outlier'] = (merged['val1'] > 50) | (merged['val2'] > 50)
 
-            fname = f"{pm_col}__{label1.replace(' ', '_')}__vs__{label2.replace(' ', '_')}__point.png"
+            fname = f"{PM_COL}__{label1.replace(' ', '_')}__vs__{label2.replace(' ', '_')}__point.png"
             savepath = output / fname
 
             print(label1, "and", label2)
@@ -392,9 +415,9 @@ def main(data:str, output:str):
                 x=merged['val1'].values,
                 y=merged['val2'].values,
                 is_outlier=merged['is_outlier'].values,
-                xlabel=f"{label1} {pm_col} (µg/m³)",
-                ylabel=f"{label2} {pm_col} (µg/m³)",
-                title=f"{pm_col}: {label1} vs {label2} Hourly Averages",
+                xlabel=f"{label1} {PM_COL} (µg/m³)",
+                ylabel=f"{label2} {PM_COL} (µg/m³)",
+                title=f"{PM_COL}: {label1} vs {label2} Hourly Averages",
                 savepath=savepath,
                 num_points=num_datapoints,
                 lim=40  # axis cap; outlier points beyond this are still plotted but clipped
@@ -410,88 +433,59 @@ def main(data:str, output:str):
 
     bias_df = pd.DataFrame(bias_results).T
 
-    # Uncomment to save the bias summary table to CSV:
-    # bias_df.to_csv(output / 'bias_summary.csv')
-
-    print(f"[INFO] Bias summary (not saved — uncomment bias_df.to_csv to export):")
-    print(bias_df)
-
+    if SAVE_BIAS_CSV:
+        bias_df.to_csv(output / 'bias_summary.csv')
+        print(f"[INFO] Bias summary saved to {output / 'bias_summary.csv'}")
+    else:
+        print(f"[INFO] Bias summary (set SAVE_BIAS_CSV = True to export):")
+        print(bias_df)
 
     # ============================================================
     # OPTIONAL: Point-for-point scatter plots (minute-level, no hourly averaging)
-    # Use this instead of the hourly block above when you want finer temporal
-    # resolution. Instruments must share exact timestamps to produce matches,
-    # so this works best when comparing 3D-PAWS instruments against each other.
-    # For Study 2 CU Boulder comparisons, minute-level data is available for
-    # Instrument 153 and CU Boulder but not for Instrument 154 (5-min intervals).
+    # Enable by setting PLOT_POINT_FOR_POINT = True in CONFIG.
     # ============================================================
-    # def _prepare_df(df, col):
-    #     """Parse time, coerce numeric, return df with exact timestamps (no resampling)."""
-    #     with warnings.catch_warnings():
-    #         warnings.simplefilter("ignore", category=FutureWarning)
-    #         out = df.copy()
-    #         if 'time' not in out.columns:
-    #             out = out.reset_index()
-    #         out['time'] = pd.to_datetime(out['time'], errors='coerce', utc=True).dt.tz_localize(None)
-    #         if col not in out.columns:
-    #             return None
-    #         out[col] = pd.to_numeric(out[col], errors='coerce')
-    #         return out[['time', col]].dropna()
-    #
-    # df_by_name = {label: df for label, df in zip(names, dataframes)}
-    #
-    # # TO CONFIGURE: list the instruments for point-for-point comparison.
-    # # Study 2 — Boulder example:
-    # all_labels = [
-    #     'CU Boulder Reference',
-    #     'AQ_Comparison_2',
-    #     'AQ_Comparison_1_5min'
-    # ]
-    # pm_col = 'PM 2.5'
-    #
-    # prepped_data = {}
-    # for label in all_labels:
-    #     df = df_by_name.get(label, None)
-    #     if df is None:
-    #         print(f"[WARN] Could not find dataframe for {label}")
-    #         continue
-    #     prepped = _prepare_df(df, pm_col)
-    #     if prepped is None:
-    #         print(f"[WARN] {label} missing column '{pm_col}'")
-    #         continue
-    #     prepped_data[label] = prepped
-    #
-    # output.mkdir(parents=True, exist_ok=True)
-    #
-    # for i, label1 in enumerate(all_labels):
-    #     for label2 in all_labels[i+1:]:
-    #         if label1 not in prepped_data or label2 not in prepped_data:
-    #             continue
-    #         merged = pd.merge(
-    #             prepped_data[label1].rename(columns={pm_col: 'val1'}),
-    #             prepped_data[label2].rename(columns={pm_col: 'val2'}),
-    #             on='time',
-    #             how='inner'
-    #         ).dropna()
-    #         num_datapoints = len(merged)
-    #         if merged.empty:
-    #             print(f"[INFO] No time overlap for {label1} vs {label2}.")
-    #             continue
-    #         merged['is_outlier'] = (merged['val1'] > 50) | (merged['val2'] > 50)
-    #         fname = f"{pm_col}__{label1.replace(' ', '_')}__vs__{label2.replace(' ', '_')}__point.png"
-    #         savepath = output / fname
-    #         _stats_and_scatter(
-    #             x=merged['val1'].values,
-    #             y=merged['val2'].values,
-    #             is_outlier=merged['is_outlier'].values,
-    #             xlabel=f"{label1} {pm_col} (µg/m³)",
-    #             ylabel=f"{label2} {pm_col} (µg/m³)",
-    #             title=f"{pm_col}: {label1} vs {label2} (point-for-point)",
-    #             savepath=savepath,
-    #             num_points=num_datapoints,
-    #             lim=40
-    #         )
-    #         print(f"[SUCCESS] Generated comparison: {label1} vs {label2}")
+    if PLOT_POINT_FOR_POINT:
+        prepped_data = {}
+        for label in all_labels:
+            df = df_by_name.get(label, None)
+            if df is None:
+                print(f"[WARN] Could not find dataframe for {label}")
+                continue
+            prepped = _prepare_df(df, PM_COL)
+            if prepped is None:
+                print(f"[WARN] {label} missing column '{PM_COL}'")
+                continue
+            prepped_data[label] = prepped
+
+        for i, label1 in enumerate(all_labels):
+            for label2 in all_labels[i+1:]:
+                if label1 not in prepped_data or label2 not in prepped_data:
+                    continue
+                merged = pd.merge(
+                    prepped_data[label1].rename(columns={PM_COL: 'val1'}),
+                    prepped_data[label2].rename(columns={PM_COL: 'val2'}),
+                    on='time',
+                    how='inner'
+                ).dropna()
+                num_datapoints = len(merged)
+                if merged.empty:
+                    print(f"[INFO] No time overlap for {label1} vs {label2}.")
+                    continue
+                merged['is_outlier'] = (merged['val1'] > 50) | (merged['val2'] > 50)
+                fname = f"{PM_COL}__{label1.replace(' ', '_')}__vs__{label2.replace(' ', '_')}__point-for-point.png"
+                savepath = output / fname
+                _stats_and_scatter(
+                    x=merged['val1'].values,
+                    y=merged['val2'].values,
+                    is_outlier=merged['is_outlier'].values,
+                    xlabel=f"{label1} {PM_COL} (µg/m³)",
+                    ylabel=f"{label2} {PM_COL} (µg/m³)",
+                    title=f"{PM_COL}: {label1} vs {label2} (point-for-point)",
+                    savepath=savepath,
+                    num_points=num_datapoints,
+                    lim=40
+                )
+                print(f"[SUCCESS] Generated comparison: {label1} vs {label2}")
 
 
 def parse_args():

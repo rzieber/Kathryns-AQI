@@ -21,8 +21,7 @@ def main(clean:bool=False, plot:bool=False, statistics:bool=False):
         cleaner.main("data/raw", "data/reformatted", 50.0)
 
     if plot:
-        # Second argument is where plots will be saved.
-        # Update this path to a real output directory before uncommenting plt.savefig() in plotter.py.
+        # See plotter.py script to control which plots get generated
         plotter.main("data/reformatted", "plots")
 
     if statistics:
